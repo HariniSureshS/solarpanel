@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[7]:
 
 
 from solaris.data import data_dir
@@ -16,6 +16,8 @@ import rasterio as rio
 import pycocotools.mask as mask_util
 import shapely
 import math
+import json
+import numpy as np
 
 class Post_Process:
     def __init__(self, coco_file , tif_img, crs= 'EPSG:5703'):
