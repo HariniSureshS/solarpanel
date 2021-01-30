@@ -64,6 +64,7 @@ class Post_Process:
         self.geo_df = self.__get_pix_coords_df()
         self.geo_df = self.__get_px_coords()
         self.geo_df = self.__get_geo_coords()
+        self.geo_df = self.__get_lat_long()
         self.geo_df = self.__get_area()
         self.geo_df = self.__get_azimuth()
         
@@ -201,6 +202,17 @@ class Post_Process:
         gdf = gdf.to_crs(epsg=5703)
         self.geo_df = gdf
         
+        return self.geo_df
+    
+    def __get_lat_long(self):
+        """Function to get coordinates in latitude and longitude degress as a column in dataframe"""
+        # Find the center of the polygons
+        self.geo_df['center_point'] = self.geo_df['geometry'].centroid
+        #Extract lat and lon from the centerpoint (This is extra)
+        self.geo_df["longitude"] = self.geo_df.center_point.map(lambda p: p.x)
+        self.geo_df["latitude"] = self.geo_df.center_point.map(lambda p: p.y)
+        # Remove extra geometry (to save the dataframe)
+        self.geo_df = self.geo_df.drop(['center_point', 'polygons', 'pix_polygons', 'pixel_Center_point'], axis = 1)
         return self.geo_df
        
     
