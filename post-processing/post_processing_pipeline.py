@@ -267,8 +267,9 @@ class Post_Process:
             
         return self.result_dict
     
-    
+    # Helper method to save our list of dictionaries as a csv file
     def save_to_csv(self, file_name):
+        '''Takes a file name with csv extension'''
         keys = self.result_dict[0].keys()
         with open(file_name, 'w', newline='')  as output_file:
             dict_writer = csv.DictWriter(output_file, keys)
