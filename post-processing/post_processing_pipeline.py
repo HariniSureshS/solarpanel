@@ -19,9 +19,11 @@ import numpy as np
 import json
 from shapely.geometry import Polygon
 from osgeo import gdal
+import csv
+import pandas as pd
 
 class Post_Process:
-    def __init__(self, coco_file , tif_img):
+    def __init__(self, coco_file , tif_img, img_name, threshold):
         '''
         class takes model prediction (coco json format) 
         and reference image, for post processing
@@ -31,9 +33,36 @@ class Post_Process:
         self.tif_img = tif_img
         self.geo_df = None
         self.bin_mask = None
+        self.result_dict = []
+        self.img_name = img_name
+        self.threshold = threshold
+        
     
-    def get_bin_mask(self, threshold):
-        '''Take the '''
+    def get_full_post_process(self, result_to_dict = False):
+        '''Full post process mask
+        Returns, Tuple (binary mask and dataFrame) if result_to_dict is False
+        Returns a Tuple (binary mask and dictionary structure data) if result_dict is True'''
+        self.bin_mask = self.get_bin_mask()
+        self.geo_df = self.__get_px_coords_df()
+        self.geo_df = self.__get_px_coords()
+        self.geo_df = self.__get_geo_coords()
+        self.geo_df = self.__get_lat_long()
+        self.geo_df = self.__get_area()
+        self.geo_df = self.__get_azimuth()
+        
+        # Append the information to our Json file 
+        if result_to_dict:
+            # create a json file and append the data
+            self.result_dict = self.__append_to_json()
+            return self.bin_mask, self.result_dict
+        else:
+            # Return the binary mask and the geo dataframe 
+            return  self.bin_mask, self.geo_df
+        
+    
+    def get_bin_mask(self):
+        '''Decods the model prediction in Json format with the encoded masks
+        Retruns the binary mask '''
         ## Read and parse our json file
         with open(self.coco_file, 'r') as my_file:
             data = my_file.readlines()
@@ -46,7 +75,7 @@ class Post_Process:
 
         for i in range(len(obj)):
             # Check the prediction score
-            if obj[i]['score'] > threshold:
+            if obj[i]['score'] > self.threshold:
                 seg_dict = {}
                 seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
         
@@ -56,24 +85,10 @@ class Post_Process:
             
         return  self.bin_mask
         
-    
-    def get_full_post_process(self, threshold = 0.6):
-        '''Full post process mask
-        Returns, Tuple (bunary mask and dataFrame)'''
-        self.bin_mask = self.get_bin_mask(threshold)
-        self.geo_df = self.__get_pix_coords_df()
-        self.geo_df = self.__get_px_coords()
-        self.geo_df = self.__get_geo_coords()
-        self.geo_df = self.__get_lat_long()
-        self.geo_df = self.__get_area()
-        self.geo_df = self.__get_azimuth()
-        
-        return  self.bin_mask, self.geo_df
-        
         
         
     
-    def __get_pix_coords_df(self, output_path=None):
+    def __get_px_coords_df(self, output_path=None):
         '''
         Takes a tif image and returns a geo dataframe
         '''
@@ -201,7 +216,6 @@ class Post_Process:
         # Apply the new projection
         gdf = gdf.to_crs(epsg=5703)
         self.geo_df = gdf
-        
         return self.geo_df
     
     def __get_lat_long(self):
@@ -211,17 +225,55 @@ class Post_Process:
         #Extract lat and lon from the centerpoint (This is extra)
         self.geo_df["longitude"] = self.geo_df.center_point.map(lambda p: p.x)
         self.geo_df["latitude"] = self.geo_df.center_point.map(lambda p: p.y)
-        # Remove extra geometry (to save the dataframe)
         self.geo_df = self.geo_df.drop(['center_point', 'polygons', 'pix_polygons', 'pixel_Center_point'], axis = 1)
+        
         return self.geo_df
-       
     
-  
-        
-       
     
-  
+    
+    def __append_to_json(self):
+        ## Read and parse our json file
+        with open(self.coco_file, 'r') as my_file:
+            data = my_file.readlines()
+            # Parse file
+            obj = json.loads(data[0])
         
-  
+        #poly_loc_list = []
+        ## iterate and decode segmentations
+        self.bin_mask = np.zeros(obj[0]['segmentation']['size'])
+        
+        for i in range(len(obj)):
+            # Check the prediction score
+            if obj[i]['score'] > self.threshold:
+                seg_dict = {}
+                seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
+        
+                poly = mask_util.decode(seg_dict)[:, :]
+                seg_dict = {}
+                seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
+                poly = mask_util.decode(seg_dict)[:, :]
+                 # Create new Json file to append our information to (this will contains polygons with high scores only)
+                new_json = {}
+                new_json = {'image_id': obj[i]['image_id'], 'category_id': obj[i]['image_id'], 'image_name': self.img_name, 
+                            'bbox': obj[i]['bbox'],  'score': obj[i]['score'],'bbox' : obj[i]['bbox'],
+                            'polygon': self.geo_df.iloc[i].geometry, 'pixel_col':self.geo_df.iloc[i].pixel_col,
+                            'pixel_row': self.geo_df.iloc[i].pixel_row, 'longitude': self.geo_df.iloc[i].pixel_row, 
+                            'longitude': self.geo_df.iloc[i].longitude, 
+                            'latitude':self.geo_df.iloc[i].latitude, 
+                            'area(square feet)': self.geo_df.iloc[i]['area(square feet)'],
+                            'Roof_Azimuth':self.geo_df.iloc[i].Roof_Azimuth}
+                
+                self.result_dict.append(new_json)
+            
+        return self.result_dict
+    
+    
+    def save_to_csv(self, file_name):
+        keys = self.result_dict[0].keys()
+        with open(file_name, 'w', newline='')  as output_file:
+            dict_writer = csv.DictWriter(output_file, keys)
+            dict_writer.writeheader()
+            dict_writer.writerows( self.result_dict)
+       
         
 
