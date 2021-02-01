@@ -25,7 +25,7 @@ import pandas as pd
 class Post_Process:
     def __init__(self, coco_file , tif_img, img_name, threshold):
         '''
-        class takes model prediction (coco json format) 
+        class takes model prediction (coco json format) c
         and reference image, for post processing
         Returns, binary mask and dataframe with area and oriantation
         '''
@@ -46,9 +46,12 @@ class Post_Process:
         self.geo_df = self.__get_px_coords_df()
         self.geo_df = self.__get_px_coords()
         self.geo_df = self.__get_geo_coords()
-        self.geo_df = self.__get_lat_long()
         self.geo_df = self.__get_area()
         self.geo_df = self.__get_azimuth()
+        # Reprojecting before extracting the lat/long on the map
+        self.geo_df = self.__apply_projection()
+        self.geo_df = self.__get_lat_long()
+       
         
         # Append the information to our Json file 
         if result_to_dict:
@@ -139,7 +142,7 @@ class Post_Process:
         # Get the area and append to the df
         if self.geo_df is not None :
             # Calculate the area
-            self.geo_df['area(square feet)'] = ((self.geo_df['geometry'].area)/10.764) # In sequare feet
+            self.geo_df['area(square meter)'] = ((self.geo_df['geometry'].area)) # In sequare meter #/10.764
         else:
             print("No dataframe acquired, yet. Use get_geo_df")
 
@@ -213,9 +216,16 @@ class Post_Process:
         # Set the original crs
         # Reproject to ge the real coords on the map 
         gdf = gdf.set_crs(str(self.tif_img.crs))
-        # Apply the new projection
-        gdf = gdf.to_crs(epsg=5703)
+        
         self.geo_df = gdf
+        # Apply the new projection
+        gdf = gdf.to_crs(epsg=2955) #5703
+        self.geo_df = gdf
+        return self.geo_df
+    
+    def __apply_projection(self):
+        # Apply the new projection
+        self.geo_df =  self.geo_df.to_crs(epsg=5703)
         return self.geo_df
     
     def __get_lat_long(self):
@@ -260,7 +270,7 @@ class Post_Process:
                             'pixel_row': self.geo_df.iloc[i].pixel_row, 'longitude': self.geo_df.iloc[i].pixel_row, 
                             'longitude': self.geo_df.iloc[i].longitude, 
                             'latitude':self.geo_df.iloc[i].latitude, 
-                            'area(square feet)': self.geo_df.iloc[i]['area(square feet)'],
+                            'area(square meter)': self.geo_df.iloc[i]['area(square meter)'],
                             'Roof_Azimuth':self.geo_df.iloc[i].Roof_Azimuth}
                 
                 self.result_dict.append(new_json)
