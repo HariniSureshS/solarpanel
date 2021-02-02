@@ -22,6 +22,30 @@ from osgeo import gdal
 import csv
 import pandas as pd
 
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[7]:
+
+from solaris.data import data_dir
+import solaris as sol
+import os
+import skimage
+import geopandas as gpd
+from matplotlib import pyplot as plt
+from shapely.ops import cascaded_union
+import cv2
+import rasterio as rio
+import pycocotools.mask as mask_util
+import shapely
+import math
+import numpy as np
+import json
+from shapely.geometry import Polygon
+from osgeo import gdal
+import csv
+import pandas as pd
+
 class Post_Process:
     def __init__(self, coco_file , tif_img, img_name, threshold):
         '''
@@ -38,7 +62,7 @@ class Post_Process:
         self.threshold = threshold
         
     
-    def get_full_post_process(self, result_to_dict = False):
+    def get_full_post_process(self):
         '''Full post process mask
         Returns, Tuple (binary mask and dataFrame) if result_to_dict is False
         Returns a Tuple (binary mask and dictionary structure data) if result_dict is True'''
@@ -52,15 +76,9 @@ class Post_Process:
         self.geo_df = self.__apply_projection()
         self.geo_df = self.__get_lat_long()
        
-        
-        # Append the information to our Json file 
-        if result_to_dict:
-            # create a json file and append the data
-            self.result_dict = self.__append_to_json()
-            return self.bin_mask, self.result_dict
-        else:
-            # Return the binary mask and the geo dataframe 
-            return  self.bin_mask, self.geo_df
+    
+        # Return the binary mask and the geo dataframe 
+        return  self.bin_mask, self.geo_df
         
     
     def get_bin_mask(self):
@@ -150,6 +168,7 @@ class Post_Process:
     
     
     def __get_azimuth(self):
+        '''Calculate the azimuth angle'''
         # Make sure we already have the geo_df calculated
         list_azimuth = []
         if self.geo_df is not None :
@@ -179,6 +198,8 @@ class Post_Process:
         return self.geo_df
     
     def __get_geo_coords(self):
+        '''Convert the each pixel point 
+        to a georefrenced point with lat/long coordinates'''
         # Now convert the pixel row/col to lat/long
         # unravel GDAL affine transform parameters
         coords = [list(poly.exterior.coords) for poly in self.geo_df.geometry]
@@ -224,7 +245,7 @@ class Post_Process:
         return self.geo_df
     
     def __apply_projection(self):
-        # Apply the new projection
+        '''Apply the new projection to a geodataframe'''
         self.geo_df =  self.geo_df.to_crs(epsg=5703)
         return self.geo_df
     
@@ -233,15 +254,18 @@ class Post_Process:
         # Find the center of the polygons
         self.geo_df['center_point'] = self.geo_df['geometry'].centroid
         #Extract lat and lon from the centerpoint (This is extra)
-        self.geo_df["longitude"] = self.geo_df.center_point.map(lambda p: p.x)
-        self.geo_df["latitude"] = self.geo_df.center_point.map(lambda p: p.y)
+        self.geo_df["latitude"] = self.geo_df.center_point.map(lambda p: p.x)
+        self.geo_df["longitude"] = self.geo_df.center_point.map(lambda p: p.y)
         self.geo_df = self.geo_df.drop(['center_point', 'polygons', 'pix_polygons', 'pixel_Center_point'], axis = 1)
         
         return self.geo_df
     
     
-    
-    def __append_to_json(self):
+    # Append the information to our json file and save it somewhere
+    def append_to_json(self, filename):
+        '''takes a ../filename.json and 
+        save the dictionary with all the information
+        in a JSON file on disk'''
         ## Read and parse our json file
         with open(self.coco_file, 'r') as my_file:
             data = my_file.readlines()
@@ -262,21 +286,36 @@ class Post_Process:
                 seg_dict = {}
                 seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
                 poly = mask_util.decode(seg_dict)[:, :]
+                poly = poly.tolist()
                  # Create new Json file to append our information to (this will contains polygons with high scores only)
                 new_json = {}
-                new_json = {'image_id': obj[i]['image_id'], 'category_id': obj[i]['image_id'], 'image_name': self.img_name, 
-                            'bbox': obj[i]['bbox'],  'score': obj[i]['score'],'bbox' : obj[i]['bbox'],
-                            'polygon': self.geo_df.iloc[i].geometry, 'pixel_col':self.geo_df.iloc[i].pixel_col,
-                            'pixel_row': self.geo_df.iloc[i].pixel_row, 'longitude': self.geo_df.iloc[i].pixel_row, 
+                new_json = {'image_name': self.img_name, 
+                            'polygon': (np.asarray(self.geo_df.iloc[i].geometry.exterior.coords)).tolist(),
+                            'pixel_col': self.geo_df.iloc[i].pixel_col,
+                            'pixel_row': self.geo_df.iloc[i].pixel_row,
                             'longitude': self.geo_df.iloc[i].longitude, 
                             'latitude':self.geo_df.iloc[i].latitude, 
                             'area(square meter)': self.geo_df.iloc[i]['area(square meter)'],
                             'Roof_Azimuth':self.geo_df.iloc[i].Roof_Azimuth}
                 
                 self.result_dict.append(new_json)
-            
-        return self.result_dict
-    
+                
+        all_json_list = []
+        with open(self.coco_file, 'r+') as my_file:
+            data = my_file.readlines()
+            # Parse file
+            obj = json.loads(data[0])
+        for i in range(len(obj)):
+            if obj[i]['score'] > self.threshold: 
+                dict_copy = obj[i].copy()
+                # Update the dictionary
+                dict_copy.update(self.result_dict[i])
+                all_json_list.append(dict_copy)
+                
+                with open(filename, 'w') as outfile:
+                    json.dump(all_json_list, outfile)
+                    
+        
     # Helper method to save our list of dictionaries as a csv file
     def save_to_csv(self, file_name):
         '''Takes a file name with csv extension'''
@@ -285,6 +324,5 @@ class Post_Process:
             dict_writer = csv.DictWriter(output_file, keys)
             dict_writer.writeheader()
             dict_writer.writerows( self.result_dict)
-       
-        
+
 
