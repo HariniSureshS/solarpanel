@@ -17,7 +17,7 @@ import shapely
 import math
 import numpy as np
 import json
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 from osgeo import gdal
 import csv
 import pandas as pd
@@ -192,9 +192,9 @@ class Post_Process:
        # First we get the pixel lat/long values
         self.geo_df['pixel_Center_point'] = self.geo_df['geometry'].centroid
         #Extract lat and lon from the centerpoint
-        self.geo_df["pixel_col"] = self.geo_df.pixel_Center_point.map(lambda p: p.y)
-        self.geo_df["pixel_row"] = self.geo_df.pixel_Center_point.map(lambda p: p.x)
-        
+        self.geo_df["pixel_x"] = self.geo_df.pixel_Center_point.map(lambda p: p.x)
+        self.geo_df["pixel_y"] = self.geo_df.pixel_Center_point.map(lambda p: p.y)
+              
         return self.geo_df
     
     def __get_geo_coords(self):
@@ -246,7 +246,7 @@ class Post_Process:
     
     def __apply_projection(self):
         '''Apply the new projection to a geodataframe'''
-        self.geo_df =  self.geo_df.to_crs(epsg=5703)
+        self.geo_df =  self.geo_df.to_crs(epsg=4326) #5703 in meter
         return self.geo_df
     
     def __get_lat_long(self):
@@ -256,6 +256,7 @@ class Post_Process:
         #Extract lat and lon from the centerpoint (This is extra)
         self.geo_df["latitude"] = self.geo_df.center_point.map(lambda p: p.x)
         self.geo_df["longitude"] = self.geo_df.center_point.map(lambda p: p.y)
+        self.geo_df['points'] = [Point(xy) for xy in zip( self.geo_df['longitude'],  self.geo_df['latitude'])]
         self.geo_df = self.geo_df.drop(['center_point', 'polygons', 'pix_polygons', 'pixel_Center_point'], axis = 1)
         
         return self.geo_df
@@ -290,9 +291,9 @@ class Post_Process:
                  # Create new Json file to append our information to (this will contains polygons with high scores only)
                 new_json = {}
                 new_json = {'image_name': self.img_name, 
-                            'polygon': (np.asarray(self.geo_df.iloc[i].geometry.exterior.coords)).tolist(),
-                            'pixel_col': self.geo_df.iloc[i].pixel_col,
-                            'pixel_row': self.geo_df.iloc[i].pixel_row,
+                            'geometry': (np.asarray(self.geo_df.iloc[i].geometry.exterior.coords)).tolist(),
+                            'pixel_x': self.geo_df.iloc[i].pixel_x,
+                            'pixel_y': self.geo_df.iloc[i].pixel_y,
                             'longitude': self.geo_df.iloc[i].longitude, 
                             'latitude':self.geo_df.iloc[i].latitude, 
                             'area(square meter)': self.geo_df.iloc[i]['area(square meter)'],
