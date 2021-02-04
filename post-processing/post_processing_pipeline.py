@@ -3,8 +3,6 @@
 
 # In[7]:
 
-from solaris.data import data_dir
-import solaris as sol
 import os
 import skimage
 import geopandas as gpd
@@ -21,6 +19,7 @@ from shapely.geometry import Polygon, Point
 from osgeo import gdal
 import csv
 import pandas as pd
+from skimage import measure
 
 #!/usr/bin/env python
 # coding: utf-8
@@ -135,9 +134,34 @@ class Post_Process:
         return self.geo_df
     
     def get_px_coords_df(self):
-        '''
-        Takes a tif image and returns a geo dataframe
-        '''
+        '''Convert ourbinary mask to polygons'''
+        
+        if self.bin_mask is not None:
+            contours = measure.find_contours(self.bin_mask, 0.5)
+            len(contours)
+            px_polys = []
+            for contour in contours:
+                #poly.is_valid
+                poly = Polygon(contour).simplify(1.0)
+                if poly.is_valid:
+                    px_polys.append(poly)
+
+            data = []
+            for i in range(len(px_polys)):
+                data_dict = {}
+                data_dict = {'value': i, 'geometry' :px_polys[i]}
+                data.append(data_dict)
+
+            # Create dataFrame
+            self.geo_df = gpd.GeoDataFrame(data)
+            
+        else:
+            print("Claclulate binary mask first using get_bin_mask")
+        
+        self.geo_df = self.geo_df.drop(['value'], axis = 1) 
+        return self.geo_df
+    
+    '''def get_px_coords_df(self):
         if self.bin_mask is not None:
             
             self.geo_df = sol.vector.mask.mask_to_poly_geojson(pred_arr=self.bin_mask, 
@@ -150,7 +174,7 @@ class Post_Process:
         else:
             print("Claclulate binary mask first using get_bin_mask")
             
-        return self.geo_df
+        return self.geo_df'''
     
     def get_px_coords(self):
         """Function to get geo coordinates given a pixel coordinates"""
@@ -181,7 +205,7 @@ class Post_Process:
                 x = points[0]
                 y = points[1]
         
-                (px, py) = rio.transform.xy(self.tif_img.transform, y, x, offset='center')
+                (px, py) = rio.transform.xy(self.tif_img.transform, x, y, offset='center')
                 poly = (px, py)
                 geo_poly.append(poly)
         
@@ -273,5 +297,6 @@ class Post_Process:
             dict_writer = csv.DictWriter(output_file, keys)
             dict_writer.writeheader()
             dict_writer.writerows( self.result_dict)
+
 
 
