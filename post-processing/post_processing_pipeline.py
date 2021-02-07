@@ -16,7 +16,6 @@ import math
 import numpy as np
 import json
 from shapely.geometry import Polygon, Point
-from osgeo import gdal
 import csv
 import pandas as pd
 from skimage import measure
@@ -25,6 +24,9 @@ from skimage import measure
 # coding: utf-8
 
 # In[7]:
+
+#!/usr/bin/env python
+# coding: utf-8
 
 class Post_Process:
     def __init__(self, coco_file , tif_img, img_name, threshold, crs_value='EPSG:4326'):
@@ -102,14 +104,15 @@ class Post_Process:
         calculate area for our polygons and append to the geo_df
         '''
         # reproject to meter coordinates
-        self.geo_df = self.geo_df.to_crs('EPSG:5703')
+        geo_df_meter = self.geo_df.copy()
+        geo_df_meter = self.geo_df.to_crs('EPSG:3763') #5703
         # If it we have the df
         # Get the area and append to the df
-        if self.geo_df is not None :
+        if geo_df_meter is not None :
             # Calculate the area
-            self.geo_df['area(square meter)'] = ((self.geo_df['geometry'].area)) # In sequare meter #/10.764
+            geo_df_meter['area(square meter)'] = ((geo_df_meter['geometry'].area)) # In sequare meter #/10.764
             # Back to original 
-            self.geo_df = self.geo_df.to_crs(self.crs_value)
+            self.geo_df['area(square meter)'] =  geo_df_meter['area(square meter)']
         else:
             print("No dataframe acquired, yet. Use get_geo_df")
         
@@ -121,16 +124,19 @@ class Post_Process:
         # Make sure we already have the geo_df calculated
         list_azimuth = []
         if self.geo_df is not None :
-            for i in range(len(self.geo_df)):
-                g = self.geo_df.iloc[i].geometry
+            geo_df_meter = self.geo_df.copy()
+            geo_df_meter = geo_df_meter.to_crs('EPSG:3763')
+
+            for i in range(len(geo_df_meter)):
+                g = geo_df_meter.iloc[i].geometry
                 angle = self.calc_azimuth(g)
                 list_azimuth.append(angle)
                 
-            self.geo_df['Roof_Azimuth'] = list_azimuth
+            geo_df_meter['Roof_Azimuth'] = list_azimuth
         
         else: 
              print("No dataframe acquired, yet. Use get_geo_df")
-        
+        self.geo_df['Roof_Azimuth'] =  geo_df_meter['Roof_Azimuth']
         return self.geo_df
     
     def get_px_coords_df(self):
