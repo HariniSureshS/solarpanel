@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[7]:
-
 import os
 import skimage
 import geopandas as gpd
@@ -29,21 +24,21 @@ from skimage import measure
 # coding: utf-8
 
 class Post_Process:
-    def __init__(self, coco_file , tif_img, img_name, threshold, crs_value='EPSG:4326'):
+    def __init__(self, addr_loc, coco_file, crs_value='EPSG:4326'):
         '''
-        class takes model prediction (coco json format) c
-        and reference image, for post processing
+        class takes model prediction (coco json format)
+        and tile_prediction(full path) of the model and location , for post processing
         Returns, binary mask and dataframe with area and oriantation
         '''
         self.coco_file = coco_file
-        self.tif_img = tif_img
+        self.add_loc = addr_loc
         self.geo_df = None
+        self.building_df = None
         self.bin_mask = None
         self.result_dict = []
-        self.img_name = img_name
-        self.threshold = threshold
         self.crs_value = crs_value
-        
+        # 
+        #self.tif_img = rio.open(tile_prediction)
     
     def get_full_post_process(self):
         ''' Full post process mask
@@ -65,25 +60,24 @@ class Post_Process:
     def get_bin_mask(self):
         '''Decods the model prediction in Json format with the encoded masks
         Retruns the binary mask '''
+
         ## Read and parse our json file
         with open(self.coco_file, 'r') as my_file:
             data = my_file.readlines()
             # Parse file
             obj = json.loads(data[0])
+            obj = json.loads(obj)
         
         #poly_loc_list = []
         ## iterate and decode segmentations
-        self.bin_mask = np.zeros(obj[0]['segmentation']['size'])
+        self.bin_mask = np.zeros(np.array(obj['pred_masks'][0]).shape)
 
-        for i in range(len(obj)):
-            # Check the prediction score
-            if obj[i]['score'] > self.threshold:
-                seg_dict = {}
-                seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
+        for i in range(len(obj['boxes'])):
+            seg_dict = {}
+            seg_dict = {'scores': obj['scores'][i], 'pred_masks' : np.array(obj['pred_masks'][i], dtype=int)}
         
-                poly = mask_util.decode(seg_dict)[:, :]
-            
-                self.bin_mask += poly
+            #poly = mask_util.decode(seg_dict)[:, :]
+            self.bin_mask += seg_dict['pred_masks']
             
         return  self.bin_mask
     
@@ -140,17 +134,17 @@ class Post_Process:
         return self.geo_df
     
     def get_px_coords_df(self):
-        '''Convert ourbinary mask to polygons'''
-        
+        '''Convert ourbinary mask to polygons'''       
         if self.bin_mask is not None:
             contours = measure.find_contours(self.bin_mask, 0.5)
             len(contours)
             px_polys = []
             for contour in contours:
-                #poly.is_valid
-                poly = Polygon(contour).simplify(1.0)
-                if poly.is_valid:
-                    px_polys.append(poly)
+                if len(contour) > 3: # Check for valid polygons points
+                    #poly.is_valid
+                    poly = Polygon(contour).simplify(1.0)
+                    if Polygon(contour).simplify(1.0).is_valid:
+                        px_polys.append(poly)
 
             data = []
             for i in range(len(px_polys)):
@@ -211,7 +205,7 @@ class Post_Process:
                 x = points[0]
                 y = points[1]
         
-                (px, py) = rio.transform.xy(self.tif_img.transform, x, y, offset='center')
+                (px, py) = rio.transform.xy(self.crs_value, x, y, offset='center')
                 poly = (px, py)
                 geo_poly.append(poly)
         
@@ -242,6 +236,40 @@ class Post_Process:
         return self.geo_df
     
     
+    def zoom_in(self, tile_pred, num_px):
+        '''Takes georefrenced lat/long coors, number of pixel as integer, and tiff image(dir)
+        Returns a zoomed in image to that specific location and return the image as a numpy array
+        Also clip the geo dataframe accordingly'''
+        point = Point(self.add_loc[1:])
+        #
+
+        # Convert to GeoSeries
+        gdf = gpd.GeoSeries(point)
+        # Set projection (This will help get the correct pixel values)
+        gdf.set_crs('EPSG:4326')
+
+        # Get the pixel coords 
+        row, col = rio.transform.rowcol(self.crs_value, self.add_loc[2], self.add_loc[1])
+        # Set the image edges
+        p1, p2, p3, p4 = row-num_px, row+num_px, col-num_px, col+num_px
+        # Read the model prediction (the whole tile) png
+        image = cv2.imread(tile_pred)
+        # Select the edges
+        im = image[p1:p2, p3:p4, :]
+        
+        # Select the building from the dataframe
+        geo_df_full_c = self.geo_df.copy()
+        # Reproject to get the correct distance
+        geo_df_full_c = geo_df_full_c.to_crs(5703)
+        polygon_index = geo_df_full_c.distance(point).sort_values().index[0]
+        self.building_df = pd.DataFrame(geo_df_full_c.iloc[polygon_index])
+        ########################################
+            
+        
+        return im, self.building_df
+
+    
+    
     # Append the information to our json file and save it somewhere
     def append_to_json(self, filename):
         '''takes a ../filename.json and 
@@ -252,47 +280,21 @@ class Post_Process:
             data = my_file.readlines()
             # Parse file
             obj = json.loads(data[0])
-        
-        #poly_loc_list = []
-        ## iterate and decode segmentations
-        self.bin_mask = np.zeros(obj[0]['segmentation']['size'])
-        
+            obj = json.loads(obj)
         for i in range(len(self.geo_df)):
-            # Check the prediction score
-            if obj[i]['score'] >= self.threshold:
-                seg_dict = {}
-                seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
-        
-                poly = mask_util.decode(seg_dict)[:, :]
-                seg_dict = {}
-                seg_dict = {'size': obj[i]['segmentation']['size'], 'counts' : obj[i]['segmentation']['counts']}
-                poly = mask_util.decode(seg_dict)[:, :]
-                poly = poly.tolist()
-                 # Create new Json file to append our information to (this will contains polygons with high scores only)
-                new_json = {}
-                new_json = {'image_name': self.img_name, 
-                            'geometry': (np.asarray(self.geo_df.iloc[i].geometry.exterior.coords)).tolist(),
-                            'longitude': self.geo_df.iloc[i].longitude, 
-                            'latitude':self.geo_df.iloc[i].latitude, 
-                            'area(square meter)': self.geo_df.iloc[i]['area(square meter)'],
-                            'Roof_Azimuth':self.geo_df.iloc[i].Roof_Azimuth}
-                
-                self.result_dict.append(new_json)
-                
-        all_json_list = []
-        with open(self.coco_file, 'r+') as my_file:
-            data = my_file.readlines()
-            # Parse file
-            obj = json.loads(data[0])
-        for i in range(len(self.geo_df)):
-            if obj[i]['score'] >= self.threshold: 
-                dict_copy = obj[i].copy()
-                # Update the dictionary
-                dict_copy.update(self.result_dict[i])
-                all_json_list.append(dict_copy)
-                
-                with open(filename, 'w') as outfile:
-                    json.dump(all_json_list, outfile)
+            seg_dict = {}
+            seg_dict = {'boxes': obj['boxes'][i], 'scores' : obj['scores'][i], 'pred_masks':obj['pred_masks'][i]}
+            seg_dict['image_name'] = self.img_name 
+            seg_dict['geometry'] = (np.asarray(self.geo_df.iloc[i].geometry.exterior.coords)).tolist()
+            seg_dict['longitude'] =  self.geo_df.iloc[i].longitude
+            seg_dict['latitude'] = self.geo_df.iloc[i].latitude
+            seg_dict['area(square meter)'] = self.geo_df.iloc[i]['area(square meter)']
+            seg_dict['Roof_Azimuth'] = self.geo_df.iloc[i].Roof_Azimuth       
+                                    
+            self.result_dict.append(seg_dict)
+
+            with open(filename, 'w') as outfile:
+                json.dump(self.result_dict, outfile)
                     
         
     # Helper method to save our list of dictionaries as a csv file
@@ -303,6 +305,3 @@ class Post_Process:
             dict_writer = csv.DictWriter(output_file, keys)
             dict_writer.writeheader()
             dict_writer.writerows( self.result_dict)
-
-
-
