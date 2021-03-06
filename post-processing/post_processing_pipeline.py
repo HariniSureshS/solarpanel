@@ -25,6 +25,13 @@ import imutils
 
 
 
+
+
+
+
+
+
+
 #!/usr/bin/env python
 # coding: utf-8
 
@@ -63,7 +70,7 @@ class Post_Process:
         #poly_loc_list = []
         ## iterate and decode segmentations
         self.bin_mask = np.zeros(np.array(obj['pred_masks'][0]).shape)
-
+        
         for i in range(len(obj['boxes'])):
             seg_dict = {}
             seg_dict = {'scores': obj['scores'][i], 'pred_masks' : np.array(obj['pred_masks'][i]).astype('int')}
@@ -71,7 +78,7 @@ class Post_Process:
             #poly = mask_util.decode(seg_dict)[:, :]
             self.bin_mask += seg_dict['pred_masks']
             
-        return  self.bin_mask
+        return  self.bin_mask, len(obj['boxes'])
     
     
     def process_bin_mask(self, mask, bbox):
@@ -79,7 +86,8 @@ class Post_Process:
         and a bounding box. Returns the croped mask with paddings'''
         # Crop out our building mask from the tile
         mask = Image.fromarray(mask)
-        
+
+
         mask_crop=mask.crop(bbox)
         mask_crop = np.asarray(mask_crop)
         
@@ -88,7 +96,7 @@ class Post_Process:
         #Thresholding our mask
         mask_ = mask_crop_pad.copy()
        
-        return mask_.astype('int')
+        return mask_
     
     def calc_azimuth(self, g):
         '''takes a geometry  and returns the angle'''        
@@ -196,7 +204,7 @@ class Post_Process:
         for bbox in np.array(px_df.bbox):
             if (bbox[0] < center_point[0] < bbox[2]) and (bbox[1] < center_point[1] < bbox[3]):
                 target_bbox = bbox
-                
+                           
         return target_bbox
     
     def get_bin_mask_poly(self, mask):
@@ -357,4 +365,9 @@ class Post_Process:
     
         return grid 
 
+      
+
+      
+
+      
       
