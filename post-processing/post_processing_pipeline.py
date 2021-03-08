@@ -133,7 +133,7 @@ class Post_Process:
         if self.bin_mask is not None:
             mask  = self.bin_mask.copy()
             mask = mask.astype('int')
-            contours = measure.find_contours(self.bin_mask, 0.5)
+            contours = measure.find_contours(mask, 0.5)
             
             #len(contours)
             px_polys = []
@@ -146,8 +146,8 @@ class Post_Process:
 
             data = []
             boxes = self.get_bboxes()
-           
-            for i in range(len(px_polys)):
+            min_len = np.min([len(boxes), len(contours)]) 
+            for i in range(min_len):
                 data_dict = {}
                 data_dict = {'value': i, 'geometry' :px_polys[i], 'bbox' : boxes[i]}
                 data.append(data_dict)
